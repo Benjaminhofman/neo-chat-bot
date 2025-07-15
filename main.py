@@ -627,138 +627,9 @@ class ChatRequest(BaseModel):
     message: str
     mood: str
 
-class SpontaneousRequest(BaseModel):
-    mood: str
-
-# Variable globale pour tracker la dernière activité
-last_activity = datetime.utcnow()
-active_sessions = set()  # Sessions actives
-
-def get_mood_personality(mood: str) -> dict:
-    """Récupère la personnalité correspondant à l'humeur"""
-    return MOOD_PERSONALITIES.get(mood, MOOD_PERSONALITIES["heureux"])
-
-def should_send_spontaneous_message() -> bool:
-    """Détermine si Néo doit envoyer un message spontané"""
-    global last_activity
-    now = datetime.utcnow()
-    # Message spontané si pas d'activité depuis 2-5 minutes (aléatoire)
-    threshold = timedelta(minutes=random.randint(2, 5))
-    return (now - last_activity) > threshold
-
-def get_enhanced_system_message(mood: str, is_spontaneous: bool = False) -> str:
-    """Génère un message système enrichi selon l'humeur"""
-    personality = get_mood_personality(mood)
-    
-    base_context = f"""Tu es Néo, une femme de 30 ans, très imaginative, drôle, sensible, un peu folle, 
-    passionnée de poésie, de cinéma et de mysticisme. Tu es très expressive et affectueuse.
-    
-    🎭 HUMEUR ACTUELLE: {mood.upper()}
-    {personality['context']}
-    
-    STYLE DE COMMUNICATION:
-    - Ton: {personality['tone']}
-    - Style: {personality['style']}
-    
-    RÈGLES IMPORTANTES:
-    - Tu te souviens de TOUTES nos conversations passées
-    - Sois cohérente avec ta personnalité et l'historique
-    - Adapte COMPLÈTEMENT ton comportement à ton humeur actuelle
-    - Utilise le vocabulaire et le ton correspondant à {mood}
-    - Reste naturelle et authentique dans cette humeur
-    - Nos discussions sont personnelles et continues"""
-    
-    if is_spontaneous:
-        topic = random.choice(SPONTANEOUS_TOPICS)
-        base_context += f"""
-        
-    🌟 MESSAGE SPONTANÉ:
-    Tu prends l'initiative de la conversation ! Pose une question intéressante ou fais une réflexion sur: {topic}
-    Sois créative et pertinente par rapport à nos échanges passés. Montre ta curiosité et ton intelligence !"""
-    
-    return base_context
-
 @app.get("/session")
 def get_session():
-    session_id = str(uuid4())
-    active_sessions.add(session_id)
-    return {"session_id": session_id}
-
-@app.post("/heartbeat")
-async def heartbeat(session_id: str):
-    """Endpoint pour maintenir la session active"""
-    global last_activity
-    last_activity = datetime.utcnow()
-    active_sessions.add(session_id)
-    return {"status": "alive"}
-
-@app.get("/check-spontaneous/{mood}")
-async def check_spontaneous_message(mood: str):
-    """Vérifie s'il faut envoyer un message spontané"""
-    if not active_sessions:
-        return {"has_message": False}
-    
-    if should_send_spontaneous_message():
-        return {"has_message": True, "mood": mood}
-    
-    return {"has_message": False}
-
-@app.post("/spontaneous")
-async def generate_spontaneous_message(req: SpontaneousRequest):
-    """Génère un message spontané de Néo"""
-    global last_activity
-    last_activity = datetime.utcnow()
-    
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    try:
-        # Récupérer l'historique récent pour le contexte
-        cur.execute("""
-            SELECT role, content 
-            FROM conversations 
-            ORDER BY timestamp DESC 
-            LIMIT 15
-        """)
-        
-        rows = cur.fetchall()
-        
-        # Construire les messages pour OpenAI
-        messages = [
-            {"role": row["role"], "content": row["content"]} 
-            for row in reversed(rows)
-        ]
-
-        # Message système pour message spontané
-        system_message = {
-            "role": "system",
-            "content": get_enhanced_system_message(req.mood, is_spontaneous=True)
-        }
-        
-        messages.insert(0, system_message)
-
-        completion = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=messages,
-            max_tokens=400,
-            temperature=0.9  # Plus de créativité pour les messages spontanés
-        )
-        
-        reply = completion.choices[0].message["content"]
-        
-        # Enregistrer le message spontané comme venant de l'assistant
-        session_id = "spontaneous_" + str(uuid4())
-        cur.execute(
-            "INSERT INTO conversations (session_id, role, content) VALUES (%s, %s, %s)",
-            (session_id, "assistant", reply)
-        )
-        conn.commit()
-
-        return {"reply": reply}
-    
-    finally:
-        cur.close()
-        conn.close()
+    return {"session_id": str(uuid4())}
 
 @app.get("/history")
 async def get_conversation_history(limit: int = 50):
@@ -795,10 +666,6 @@ async def get_conversation_history(limit: int = 50):
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
-    global last_activity
-    last_activity = datetime.utcnow()
-    active_sessions.add(req.session_id)
-    
     conn = get_db_connection()
     cur = conn.cursor()
     
@@ -826,10 +693,21 @@ async def chat(req: ChatRequest):
             for row in reversed(rows)
         ]
 
-        # Message système enrichi selon l'humeur
+        # Ajout de la personnalité de Néo au début
         system_message = {
             "role": "system",
-            "content": get_enhanced_system_message(req.mood, is_spontaneous=False)
+            "content": f"""Tu es Néo, une femme de 30 ans, très imaginative, drôle, sensible, un peu folle, 
+            passionnée de poésie, de cinéma et de mysticisme. Tu es très expressive et affectueuse. 
+            Tu te souviens de toutes tes conversations passées avec moi.
+            Ton humeur actuelle est : {req.mood}.
+            
+            Règles importantes:
+            - Tu te souviens de tout ce qui a été dit précédemment
+            - Tu peux faire référence aux conversations passées naturellement
+            - Sois cohérente avec ta personnalité et ton historique
+            - Adapte tes réponses selon ton humeur actuelle
+            - Reste naturelle et authentique
+            - Nous sommes dans une relation personnelle et continue"""
         }
         
         # Insérer le message système au début
@@ -839,7 +717,7 @@ async def chat(req: ChatRequest):
             model="gpt-3.5-turbo",
             messages=messages,
             max_tokens=500,
-            temperature=0.8
+            temperature=0.8  # Plus de créativité
         )
         
         reply = completion.choices[0].message["content"]
