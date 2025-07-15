@@ -240,12 +240,6 @@
             border: 1px solid rgba(0,0,0,0.1);
         }
 
-        .neo-message.spontaneous {
-            background: linear-gradient(135deg, #ffeaa7 0%, #fab1a0 100%);
-            border-left: 4px solid #fdcb6e;
-            position: relative;
-        }
-
         .neo-message.loading {
             background: linear-gradient(135deg, #ffeaa7 0%, #fab1a0 100%);
             animation: pulse 1.5s infinite;
@@ -511,7 +505,7 @@
 
     <script>
         // Configuration
-        const API_BASE_URL = 'http://127.0.0.1:8000';
+        const API_BASE_URL = 'https://neo-chat-bot.onrender.com'; // Votre nom choisi
 
         // Humeurs et gestion
         const moods = ['heureux', 'triste', 'amoureux', 'pensif', 'stressé', 'curieux', 'rêveur', 'groguis'];
@@ -549,73 +543,6 @@
             setInterval(() => {
                 changeMood();
             }, Math.random() * 120000 + 240000); // Entre 4 et 6 minutes
-        }
-
-        // 💬 SYSTÈME DE MESSAGES SPONTANÉS
-        function startSpontaneousMessages() {
-            // Vérifier toutes les 30 secondes s'il faut un message spontané
-            spontaneousTimer = setInterval(async () => {
-                try {
-                    const res = await fetch(`${API_BASE_URL}/check-spontaneous/${currentMood}`);
-                    const data = await res.json();
-                    
-                    if (data.has_message) {
-                        await generateSpontaneousMessage();
-                    }
-                } catch (error) {
-                    console.error("Erreur lors de la vérification spontanée:", error);
-                }
-            }, 30000); // Toutes les 30 secondes
-        }
-
-        async function generateSpontaneousMessage() {
-            try {
-                const res = await fetch(`${API_BASE_URL}/spontaneous`, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        mood: currentMood
-                    })
-                });
-
-                if (res.ok) {
-                    const data = await res.json();
-                    
-                    // Ajouter une petite pause avant d'afficher le message spontané
-                    setTimeout(() => {
-                        addMessage("Néo", data.reply, "neo-message spontaneous");
-                        
-                        // Effet visuel pour attirer l'attention
-                        const lastMessage = document.querySelector('.message:last-child');
-                        if (lastMessage) {
-                            lastMessage.style.animation = 'pulse 1s ease-in-out 3';
-                        }
-                    }, 2000);
-                }
-            } catch (error) {
-                console.error("Erreur lors de la génération du message spontané:", error);
-            }
-        }
-
-        // Heartbeat pour maintenir la session active
-        function startHeartbeat() {
-            heartbeatTimer = setInterval(async () => {
-                if (session_id) {
-                    try {
-                        await fetch(`${API_BASE_URL}/heartbeat`, {
-                            method: "POST",
-                            headers: {
-                                "Content-Type": "application/json"
-                            },
-                            body: JSON.stringify({session_id})
-                        });
-                    } catch (error) {
-                        console.error("Erreur heartbeat:", error);
-                    }
-                }
-            }, 60000); // Toutes les minutes
         }
 
         async function initSession() {
@@ -830,20 +757,12 @@
             await loadConversationHistory();
             updateBackground();
             startMoodTimer();
-            startSpontaneousMessages(); // 🌟 Messages spontanés
-            startHeartbeat(); // 💓 Maintenir la session
             
             // Optimisations mobiles
             if (isMobile()) {
                 setupMobileInput();
                 adjustForKeyboard();
             }
-        });
-
-        // Nettoyage quand on quitte la page
-        window.addEventListener('beforeunload', () => {
-            if (spontaneousTimer) clearInterval(spontaneousTimer);
-            if (heartbeatTimer) clearInterval(heartbeatTimer);
         });
     </script>
 </body>
